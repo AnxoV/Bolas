@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <link rel="stylesheet" href="style.css">
+        <title>Bolas</title>
+    </head>
+    <body>
+        <canvas id="canvas" width="500" height="500"></canvas>
+        <div id="controles">
+            <div id="range">
+                Nº bolas:
+                <input type="range" min="1" max="5000" step="1" value="1" id="cantidad">
+                <h5 id="rangeValue">1</h5>
+            </div>
+            <button id="simular">Simular</button>
+            <button id="toggle">Parar/Reanudar</button>
+            <button id="limpiar">Limpiar</button>
+            <span id="estado">Estado: Parado</span>
+        </div>
+        <script src="main.js"></script>
+    </body>
+</html>
