@@ -15,10 +15,10 @@ body {
     align-items: center;
 }
 
-#canvas {
-    border: 1px solid black;
+body > * {
+    margin: 1rem;
 }
 
-#range {
-    display: flex;
+canvas {
+    border: 1px solid black;
 }

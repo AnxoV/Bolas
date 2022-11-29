@@ -1,3 +1,176 @@
+class Canvas {
+    constructor(parent = document.body, width=500, height=500) {
+        this.canvas = document.createElement("canvas");
+        this.canvas.width = width;
+        this.canvas.height = height;
+        parent.appendChild(this.canvas);
+        this.ctx = this.canvas.getContext("2d");
+    }
+    
+    refresh(colour="transparent") {
+        this.ctx.fillStyle = colour;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    drawCircle(actor) {
+        this.ctx.fillStyle = actor.colour;
+        this.ctx.beginPath();
+        this.ctx.arc(actor.position.x, actor.position.y, actor.radius, 0, 2*Math.PI);
+        this.ctx.closePath();
+        this.ctx.fill();
+    }
+
+    sync(state) {
+        this.clearDisplay();
+        this.drawActors(state.actors);
+    }
+
+    clearDisplay() {
+        this.ctx.fillStyle = "rgba(255, 255, 255, .4)";
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    drawActors(actors) {
+        actors.forEach(actor => {
+            if (actor.type === "circle")
+                this.drawCircle(actor);
+        });
+    }
+}
+
+class Ball {
+    constructor(config) {
+        Object.assign(this,
+            {
+                id: Math.floor(Math.random() * 1000000),
+                type: "circle",
+                position: new Vector(50, 50),
+                velocity: new Vector(5, 3),
+                radius: 10,
+                colour: "#f00",
+                collisions: [],
+            },
+            config
+        );
+    }
+
+    update(state, time, updateId) {
+        if (this.collisions.length > 10) {
+            this.collisions = this.collisions.slice(this.collisions.length - 3);
+        }
+
+        const upperLimit = new Vector(
+            state.display.canvas.width - this.radius,
+            state.display.canvas.height - this.radius
+        );
+
+        const lowerLimit = new Vector(
+            0 + this.radius,
+            0 + this.radius
+        );
+
+
+        if (this.position.x >= upperLimit.x || this.position.x <= lowerLimit.x) {
+            this.velocity = new Vector(-this.velocity.x, this.velocity.y);
+        }
+
+        if (this.position.y >= upperLimit.y || this.position.y <= lowerLimit.y) {
+            this.velocity = new Vector(this.velocity.x, -this.velocity.y);
+        }
+
+        state.actors.forEach(actor => {
+            if (this !== actor && !this.collisions.includes(actor.id + updateId)) {
+                const distance = this.position.add(this.velocity)
+                                              .substract(actor.position.add(actor.velocity))
+                                              .magnitude;
+
+                if (distance <= this.radius + actor.radius) {
+                    const v1 = collisionVector(this, actor);
+                    const v2 = collisionVector(actor, this);
+                    this.velocity = v1;
+                    actor.velocity = v2;
+                    this.collisions.push(actor.id + updateId);
+                    actor.collisions.push(this.id + updateId);
+                }
+            }
+        });
+
+        const newX = Math.max(
+            Math.min(this.position.x + this.velocity.x, upperLimit.x),
+            lowerLimit.x
+        );
+
+        const newY = Math.max(
+            Math.min(this.position.y + this.velocity.y, upperLimit.y),
+            lowerLimit.y
+        );
+
+        return new Ball({
+            ...this,
+            position: new Vector(newX, newY),
+        });
+    }
+
+    get sphereArea() {
+        return 4 * Math.PI * this.radius ** 2;
+    }
+}
+
+class Vector {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+
+    add(vector) {
+        return new Vector(
+            this.x + vector.x,
+            this.y + vector.y
+        );
+    }
+
+    substract(vector) {
+        return new Vector(
+            this.x - vector.x,
+            this.y - vector.y
+        );
+    }
+
+    multiply(scalar) {
+        return new Vector(
+            this.x * scalar,
+            this.y * scalar
+        );
+    }
+
+    dotProduct(vector) {
+        return this.x * vector.x + this.y * vector.y;
+    }
+
+    get magnitude() {
+        return Math.sqrt(this.x ** 2 + this.y ** 2);
+    }
+
+    get direction() {
+        return Math.atan2(this.x, this.y);
+    }
+}
+
+class State {
+    constructor(display, actors) {
+        this.display = display;
+        this.actors = actors;
+    }
+
+    update(time) {
+        const updateId = Math.floor(Math.random() * 1000000);
+        const actors = this.actors.map(actor => {
+            return actor.update(this, time, updateId);
+        });
+        return new State(this.display, actors);
+    }
+}
+
 /**
  * Helper function to get a certain DOM element from a query
  * @param {String} query The query to search
@@ -7,293 +180,76 @@ const $ = function(query) {
     return document.querySelector(query);
 }
 
-class Canvas {
+const runAnimation = function(animation) {
+    let then = null;
+    const frame = now => {
+        if (then !== null) {
+            const deltatime = Math.min(100, now-then) / 1000;
+
+            if (animation(deltatime) === false) {
+                return;
+            }
+        }
+
+        then = now;
+        requestAnimationFrame(frame);
+    };
+
+    requestAnimationFrame(frame);
+};
+
+const collisionVector = function(b1, b2) {
     /**
-     * @param {HTMLCanvasElement} canvas The HTMLElement of the canvas
-     */
-    constructor(canvas) {
-        this.element = canvas;
-        this.ctx = this.element.getContext("2d");
-    }
-    
-    /**
-     * Refreshes the canvas.
+     * Two-dimensional elastic collision formula: https://en.wikipedia.org/wiki/Elastic_collision#Two-dimensional
      * 
-     * Default color is set to white (#fff).
+     * v'1 = v1 - (2*m2)/(m1 + m2) * <v1 - v2, x1 - x2>/||x1 - x2||^2 * (x1 - x2)
+     * v'2 = v2 - (2*m1)/(m1 + m2) * <v2 - v1, x2 - x1>/||x2 - x1||^2 * (x2 - x1)
+     * 
+     * v' is the resulting velocity vector
+     * v is the current velocity
+     * m is mass and x is the position
+     * 
+     * <...> brackets denote the dot product of the vector
+     * and ||...|| denote the magnitude or length of the vector
      */
-    refresh(colour="#fff") {
-        this.ctx.fillStyle = colour;
-        this.ctx.fillRect(0, 0, this.element.width, this.element.height);
-    }
+    return b1.velocity.substract(
+                b1.position.substract(b2.position)
+                           .multiply(
+                                b1.velocity.substract(b2.velocity)
+                                            .dotProduct(b1.position.substract(b2.position))
+                                / b1.position.substract(b2.position).magnitude ** 2
+                           )
+                           .multiply((2*b2.sphereArea) / (b1.sphereArea + b2.sphereArea))
+             );
+};
 
-    /**
-     * Draws a circle on the canvas.
-     * @param {{x: Number, y: Number}} xy The position of the circle
-     * @param {Number} r The radius of the circle
-     * @param {String} fill The hex colour of the circle
-     * @param {String} stroke The hex colour of the circunference
-     * @param {Number} width The width of the circunference 
-     * @param {{o: Number, f: Number}} a The start and end angle of the circle
-     */
-    drawCircle(xy, r, fill="black", stroke="black", width=1, a={o: 0, f: 2*Math.PI}) {
-        this.ctx.beginPath();
-        this.ctx.arc(xy.x, xy.y, r, a.o, a.f);
-        if (fill) {
-            this.ctx.fillStyle = fill;
-            this.ctx.fill()
-        }
-        if (stroke) {
-            if (width) {
-                this.ctx.lineWidth = width;
-            }
-            this.ctx.strokeStyle = stroke;
-            this.ctx.stroke();
-        }
-    }
-
-    /**
-     * Draws a rectangle on the canvas.
-     * @param {{x: Number, y: Number}} xy The position of the rectangle
-     * @param {{w: Number, h: Number}} wh The size of the rectangle
-     * @param {String} fill The hex colour of the rectangle
-     */
-    drawRect(xy, wh, fill="black") {
-        this.ctx.fillStyle = fill;
-        this.ctx.fillRect(xy.x, xy.y, wh.w, wh.h);
-    }
-
-    /**
-     * Draws a line on the canvas.
-     * @param {{x: Number, y: Number}} xyo The starting position of the line
-     * @param {{x: Number, y: Number}} xyf The end position of the line
-     * @param {Number} width The width of the line
-     * @param {String} stroke The hex colour of the line
-     */
-    drawLine(xyo, xyf, width=1, stroke="black") {
-        this.ctx.beginPath();
-        this.ctx.moveTo(xyo.x, xyo.y);
-        this.ctx.lineTo(xyf.x, xyf.y);
-        this.ctx.lineWidth = width;
-        this.ctx.strokeStyle = stroke;
-        this.ctx.stroke();
-    }
+const random = function(max=9, min=0) {
+    return Math.floor(Math.random()*(max-min+1)+min);
 }
 
-class Game extends Canvas {
-    /**
-     * @param {HTMLElement} canvas The HTMLElement of the canvas
-     */
-    constructor(canvas) {
-        super(canvas);
-        this.balls = [];
-        this.state = false;
+const collidingBalls = function({width=500, height=500, parent=document.body, count=50}) {
+    const display = new Canvas(parent, width, height);
+    const balls = [];
+    for (let i = 0; i < count; i++) {
+        balls.push(new Ball({
+            radius: random(10, 3),
+            colour: colours[random(colours.length - 1)],
+            position: new Vector(random(width-10, 10), random(height-10, 10)),
+            velocity: new Vector(random(3, -3), random(3, -3)),
+        }));
     }
 
-    /**
-     * Spawns a ball on the canvas.
-     * @param {{x: Number, y: Number}} xy The position of the ball
-     * @param {{x: Number, y: Number}} vxy The velocity of the ball
-     * @param {Number} size The size of the ball
-     * @param {String} colour The hex colour of the ball
-     */
-    spawnBall(xy, vxy, size, colour) {
-        this.balls.push(Ball.spawn(xy, vxy, size, colour));
-    }
+    let state = new State(display, balls);
+    runAnimation(time => {
+        state = state.update(time);
+        display.sync(state);
+    });
+};
 
-    /**
-     * Spawns a ball with mostly randomized properties the canvas.
-     */
-     spawnRandomBall() {
-        this.balls.push(Ball.spawnRandom(this));
-    }
-
-    /**
-     * Renders the game on the canvas.
-     */
-    render() {
-        this.refresh();
-        this.balls.forEach(ball => {
-            ball.move();
-            ball.checkColls(this);
-            ball.draw(this);
-        });
-    }
-
-    /**
-     * Resets the game properties to the default value.
-     */
-    reset() {
-        this.balls = [];
-        this.state = false;
-        this.refresh();
-    }
-
-    /**
-     * Updates and renders a frame of the game.
-     */
-    tick() {
-        if (this.state) {
-            this.render();
-        }
-        //requestAnimationFrame(() => this.tick());
-    }
-}
-
-class Ball {
-    /**
-     * @param {{x: Number, y: Number}} xy The position of the ball
-     * @param {{x: Number, y: Number}} vxy The velocity of the ball
-     * @param {Number} size The size of the ball
-     * @param {String} colour The hex colour of the ball
-     */
-    constructor(xy, vxy, size, colour) {
-        this.xy = xy;
-        this.lastxy = {...this.xy};
-        this.vxy = vxy;
-        this.size = size;
-        this.colour = colour;
-    }
-
-    /**
-     * @param {Canvas} canvas The canvas to draw the ball in
-     */
-    draw(canvas) {
-        canvas.drawCircle(this.xy, this.size, this.colour, this.colour);
-    }
-
-    /**
-     * Moves the ball accross the canvas.
-     */
-    move() {
-        this.lastxy = {...this.xy};
-        this.xy.x += this.vxy.x;
-        this.xy.y += this.vxy.y;
-    }
-
-    /**
-     * Checks if a collision has happened.
-     * @param {Canvas} canvas The canvas of the ball
-     */
-    checkColls(canvas) {
-        if (this.xy.x-this.size/2 < 0)
-            this.vxy.x = Math.abs(this.vxy.x);
-        else if (this.xy.x+this.size/2 > canvas.element.width)
-            this.vxy.x = -Math.abs(this.vxy.x);
-
-        if (this.xy.y-this.size/2 < 0)
-            this.vxy.y = Math.abs(this.vxy.y);
-        else if (this.xy.y+this.size/2 > canvas.element.height)
-            this.vxy.y = -Math.abs(this.vxy.y);
-
-        canvas.balls.forEach(ball => {
-            if (ball != this) {
-                if (Rect.distancePoints(this.xy, ball.xy) <= this.size+ball.size) {
-                    if (Rect.horizontalAngle(this.lastxy, this.xy)*180/Math.PI <= 45)
-                        this.vxy.x *= -1;
-                    else
-                        this.vxy.y *= -1;
-                    
-                    if (Rect.horizontalAngle(ball.lastxy, ball.xy)*180/Math.PI <= 45)
-                        ball.vxy.x *= -1;
-                    else
-                        ball.vxy.y *= -1;
-                }
-            }
-        });
-    }
-
-    /**
-     * @param {{x: Number, y: Number}} xy The position of the ball
-     * @param {{x: Number, y: Number}} vxy The velocity of the ball
-     * @param {Number} size The size of the ball
-     * @param {String} colour The hex colour of the ball
-     * @returns {Ball} A newly created ball object from the parameters.
-     */
-    static spawn(xy, vxy, size, colour) {
-        return new Ball(xy, vxy, size, colour);
-    }
-
-    /**
-     * @param {Canvas} canvas The canvas of the ball
-     * @returns {Ball} A newly created ball with mostly random properties.
-     */
-    static spawnRandom(canvas) {
-        return Ball.spawn(
-            {x: Math.random()*(canvas.element.width-20)+20, y: Math.random()*(canvas.element.height-20)+20},
-            {x: Math.random()*(5+1)-1, y: Math.random()*(5+1)-1},
-            $("#tamaño").value, `hsl(${Math.random()*359}, 50%, 50%)`
-        );
-    }
-}
-
-class Rect {
-    /**
-     * Calculates the axis distance between points.
-     * @param {{x: Number, y: Number}} xyo The starting point
-     * @param {{x: Number, y: Number}} xyf The end point
-     * @returns {x: Number, y: Number} The x and y distances
-     */
-    static distanceAxis(xyo, xyf) {
-        return {
-            x: Math.abs(xyo.x-xyf.x),
-            y: Math.abs(xyo.y-xyf.y)
-        }
-    }
-
-
-    /**
-     * Calculates the distance between points.
-     * @param {{x: Number, y: Number}} xyo The starting point
-     * @param {{x: Number, y: Number}} xyf The end point
-     * @returns {Number} The distance between points
-     */
-    static distancePoints(xyo, xyf) {
-        let axis = Rect.distanceAxis(xyo, xyf);
-        return Math.sqrt(Math.pow(axis.x, 2) + Math.pow(axis.y, 2));
-    }
-
-    /**
-     * Calculates the angle relative to the horizontal axis from two points.
-     * @param {{x: Number, y: Number}} xyo The starting point
-     * @param {{x: Number, y: Number}} xyf The end point
-     * @returns Number The angle in radians
-     */
-    static horizontalAngle(xyo, xyf) {
-        let axis = Rect.distanceAxis(xyo, xyf);
-        return Math.atan2(axis.y, axis.x);
-    }
-}
-
-let game = new Game($("#canvas"));
-//requestAnimationFrame(() => game.tick());
-setInterval(() => game.tick(), 10);
-
-$("#simular").onclick = function () {
-    game.state = true;
-    game.fps = $("#ticks").value;
-    for (let i = 0; i < $("#cantidad").value; i++) {
-        game.spawnRandomBall();
-    }
-
-    if ($("#cantidad").value-1 < game.balls.length) {
-        game.balls.splice(0, game.balls.length-$("#cantidad").value);
-    }
-    $("#estado").innerHTML = "Estado: En curso";
-
-}
-
-$("#toggle").onclick = function () {
-    if (game.balls.length != 0) game.state = !game.state;
-    $("#estado").innerHTML = "Estado: " + ((game.state) ? "En curso" : "Parado");
-}
-
-$("#frame").onclick = function () {
-    game.state = false;
-    game.render();
-    $("#estado").innerHTML = "Estado: Parado";
-}
-
-$("#limpiar").onclick = function () {
-    game.reset();
-    $("#estado").innerHTML = "Estado: Parado";
-}
+const colours = ["red", "green", "blue", "purple", "orange"];
+collidingBalls({
+    count: 40,
+    width: 500,
+    height: 250,
+    parent: $("body"),
+});
