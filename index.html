@@ -10,11 +10,19 @@
         <div id="controles">
             <div id="range">
                 Nº bolas:
-                <input type="range" min="1" max="5000" step="1" value="1" id="cantidad">
-                <h5 id="rangeValue">1</h5>
+                <input type="number" value="5" id="cantidad">
+            </div>
+            <div id="size">
+                Tamaño de bola:
+                <input type="number" value="5" id="tamaño">
+            </div>
+            <div id="ticks_segundo">
+                Ticks por segundo:
+                <input type="number" value="60" id="ticks">
             </div>
             <button id="simular">Simular</button>
             <button id="toggle">Parar/Reanudar</button>
+            <button id="frame">Frame a frame</button>
             <button id="limpiar">Limpiar</button>
             <span id="estado">Estado: Parado</span>
         </div>

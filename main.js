@@ -17,15 +17,17 @@ class Canvas {
     }
     
     /**
-     * Refreshes the canvas
+     * Refreshes the canvas.
+     * 
+     * Default color is set to white (#fff).
      */
-    refresh() {
-        this.ctx.fillStyle = "#fff";
+    refresh(colour="#fff") {
+        this.ctx.fillStyle = colour;
         this.ctx.fillRect(0, 0, this.element.width, this.element.height);
     }
 
     /**
-     * Draws a circle on the canvas
+     * Draws a circle on the canvas.
      * @param {{x: Number, y: Number}} xy The position of the circle
      * @param {Number} r The radius of the circle
      * @param {String} fill The hex colour of the circle
@@ -50,7 +52,7 @@ class Canvas {
     }
 
     /**
-     * Draws a rectangle on the canvas
+     * Draws a rectangle on the canvas.
      * @param {{x: Number, y: Number}} xy The position of the rectangle
      * @param {{w: Number, h: Number}} wh The size of the rectangle
      * @param {String} fill The hex colour of the rectangle
@@ -61,7 +63,7 @@ class Canvas {
     }
 
     /**
-     * Draws a line on the canvas
+     * Draws a line on the canvas.
      * @param {{x: Number, y: Number}} xyo The starting position of the line
      * @param {{x: Number, y: Number}} xyf The end position of the line
      * @param {Number} width The width of the line
@@ -85,6 +87,12 @@ class Game extends Canvas {
         super(canvas);
         this.balls = [];
         this.state = false;
+        this.fps = 60;
+        this.spf = 1/this.fps;
+        this.then = Date.now();
+        this.now;
+        this.deltatime;
+        this.cap = 0;
     }
 
     /**
@@ -106,17 +114,15 @@ class Game extends Canvas {
     }
 
     /**
-     * Draws the game on the canvas.
+     * Renders the game on the canvas.
      */
-    draw() {
-        if (this.state) {
-            this.refresh();
-            this.balls.forEach(ball => {
-                ball.checkColls(this);
-                ball.move();
-                ball.draw(this);
-            });
-        }
+    render() {
+        this.refresh();
+        this.balls.forEach(ball => {
+            ball.checkColls(this, this.deltatime);
+            ball.move(this.deltatime);
+            ball.draw(this);
+        });
     }
 
     /**
@@ -129,11 +135,19 @@ class Game extends Canvas {
     }
 
     /**
-     * Draws a frame of the game.
+     * Updates and renders a frame of the game.
      */
-    frame() {
-        this.draw();
-        requestAnimationFrame(() => this.frame());
+    tick() {
+        this.now = Date.now();
+        this.deltatime = this.now-this.then;
+        this.then = this.now;
+        this.cap += this.deltatime
+        this.deltatime /= this.fps;
+        if (this.state && this.cap >= this.spf) {
+            this.render();
+            this.cap = 0;
+        }
+        requestAnimationFrame(() => this.tick());
     }
 }
 
@@ -162,24 +176,24 @@ class Ball {
     /**
      * Moves the ball accross the canvas.
      */
-    move() {
+    move(deltatime) {
         this.lastxy = {...this.xy};
-        this.xy.x += this.vxy.x;
-        this.xy.y += this.vxy.y;
+        this.xy.x += this.vxy.x*deltatime;
+        this.xy.y += this.vxy.y*deltatime;
     }
 
     /**
      * Checks if a collision has happened.
      * @param {Canvas} canvas The canvas of the ball
      */
-    checkColls(canvas) {
-        if (this.xy.x-this.size/2+this.vxy.x <= 0
-        || this.xy.x+this.size/2+this.vxy.x >= canvas.element.width) {
+    checkColls(canvas, deltatime) {
+        if (this.xy.x-this.size/2+this.vxy.x*deltatime < 0
+        || this.xy.x+this.size/2+this.vxy.x*deltatime > canvas.element.width) {
             this.vxy.x *= -1;
         }
 
-        if (this.xy.y-this.size/2+this.vxy.y <= 0
-        || this.xy.y+this.size/2+this.vxy.y >= canvas.element.height) {
+        if (this.xy.y-this.size/2+this.vxy.y*deltatime < 0
+        || this.xy.y+this.size/2+this.vxy.y*deltatime > canvas.element.height) {
             this.vxy.y *= -1;
         }
 
@@ -217,7 +231,7 @@ class Ball {
         return Ball.spawn(
             {x: Math.random()*(canvas.element.width-20)+20, y: Math.random()*(canvas.element.height-20)+20},
             {x: Math.random()*(5+1)-1, y: Math.random()*(5+1)-1},
-            2, "#0f0"
+            $("#tamaño").value, "#0f0"
         );
     }
 }
@@ -261,12 +275,13 @@ class Rect {
 }
 
 let game = new Game($("#canvas"));
-requestAnimationFrame(() => game.frame());
-
-$("#cantidad").oninput = () => $("#rangeValue").innerHTML = $("#cantidad").value;
+game.state = true;
+game.spawnBall({x: 100, y: 100}, {x: 10, y: 15}, 5, "red");
+requestAnimationFrame(() => game.tick());
 
 $("#simular").onclick = function () {
     game.state = true;
+    game.fps = $("#ticks").value;
     for (let i = 0; i < $("#cantidad").value; i++) {
         game.spawnRandomBall();
     }
@@ -279,8 +294,14 @@ $("#simular").onclick = function () {
 }
 
 $("#toggle").onclick = function () {
-    game.state = !game.state;
+    if (game.balls.length != 0) game.state = !game.state;
     $("#estado").innerHTML = "Estado: " + ((game.state) ? "En curso" : "Parado");
+}
+
+$("#frame").onclick = function () {
+    game.state = false;
+    game.render();
+    $("#estado").innerHTML = "Estado: Parado";
 }
 
 $("#limpiar").onclick = function () {
