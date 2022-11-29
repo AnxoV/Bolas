@@ -87,12 +87,6 @@ class Game extends Canvas {
         super(canvas);
         this.balls = [];
         this.state = false;
-        this.fps = 60;
-        this.spf = 1/this.fps;
-        this.then = Date.now();
-        this.now;
-        this.deltatime;
-        this.cap = 0;
     }
 
     /**
@@ -119,8 +113,8 @@ class Game extends Canvas {
     render() {
         this.refresh();
         this.balls.forEach(ball => {
-            ball.checkColls(this, this.deltatime);
-            ball.move(this.deltatime);
+            ball.move();
+            ball.checkColls(this);
             ball.draw(this);
         });
     }
@@ -138,16 +132,10 @@ class Game extends Canvas {
      * Updates and renders a frame of the game.
      */
     tick() {
-        this.now = Date.now();
-        this.deltatime = this.now-this.then;
-        this.then = this.now;
-        this.cap += this.deltatime
-        this.deltatime /= this.fps;
-        if (this.state && this.cap >= this.spf) {
+        if (this.state) {
             this.render();
-            this.cap = 0;
         }
-        requestAnimationFrame(() => this.tick());
+        //requestAnimationFrame(() => this.tick());
     }
 }
 
@@ -176,37 +164,39 @@ class Ball {
     /**
      * Moves the ball accross the canvas.
      */
-    move(deltatime) {
+    move() {
         this.lastxy = {...this.xy};
-        this.xy.x += this.vxy.x*deltatime;
-        this.xy.y += this.vxy.y*deltatime;
+        this.xy.x += this.vxy.x;
+        this.xy.y += this.vxy.y;
     }
 
     /**
      * Checks if a collision has happened.
      * @param {Canvas} canvas The canvas of the ball
      */
-    checkColls(canvas, deltatime) {
-        if (this.xy.x-this.size/2+this.vxy.x*deltatime < 0
-        || this.xy.x+this.size/2+this.vxy.x*deltatime > canvas.element.width) {
-            this.vxy.x *= -1;
-        }
+    checkColls(canvas) {
+        if (this.xy.x-this.size/2 < 0)
+            this.vxy.x = Math.abs(this.vxy.x);
+        else if (this.xy.x+this.size/2 > canvas.element.width)
+            this.vxy.x = -Math.abs(this.vxy.x);
 
-        if (this.xy.y-this.size/2+this.vxy.y*deltatime < 0
-        || this.xy.y+this.size/2+this.vxy.y*deltatime > canvas.element.height) {
-            this.vxy.y *= -1;
-        }
+        if (this.xy.y-this.size/2 < 0)
+            this.vxy.y = Math.abs(this.vxy.y);
+        else if (this.xy.y+this.size/2 > canvas.element.height)
+            this.vxy.y = -Math.abs(this.vxy.y);
 
         canvas.balls.forEach(ball => {
             if (ball != this) {
                 if (Rect.distancePoints(this.xy, ball.xy) <= this.size+ball.size) {
-                    let athis = Rect.horizontalAngle(this.lastxy, this.xy)*180/Math.PI;
-                    let aball = Rect.horizontalAngle(ball.lastxy, ball.xy)*180/Math.PI;
-                    if (athis <= 45) this.vxy.x *= -1;
-                    if (athis >= 45) this.vxy.y *= -1;
+                    if (Rect.horizontalAngle(this.lastxy, this.xy)*180/Math.PI <= 45)
+                        this.vxy.x *= -1;
+                    else
+                        this.vxy.y *= -1;
                     
-                    if (aball <= 45) ball.vxy.x *= -1;
-                    if (aball >= 45) ball.vxy.y *= -1;
+                    if (Rect.horizontalAngle(ball.lastxy, ball.xy)*180/Math.PI <= 45)
+                        ball.vxy.x *= -1;
+                    else
+                        ball.vxy.y *= -1;
                 }
             }
         });
@@ -231,7 +221,7 @@ class Ball {
         return Ball.spawn(
             {x: Math.random()*(canvas.element.width-20)+20, y: Math.random()*(canvas.element.height-20)+20},
             {x: Math.random()*(5+1)-1, y: Math.random()*(5+1)-1},
-            $("#tamaño").value, "#0f0"
+            $("#tamaño").value, `hsl(${Math.random()*359}, 50%, 50%)`
         );
     }
 }
@@ -275,9 +265,8 @@ class Rect {
 }
 
 let game = new Game($("#canvas"));
-game.state = true;
-game.spawnBall({x: 100, y: 100}, {x: 10, y: 15}, 5, "red");
-requestAnimationFrame(() => game.tick());
+//requestAnimationFrame(() => game.tick());
+setInterval(() => game.tick(), 10);
 
 $("#simular").onclick = function () {
     game.state = true;
